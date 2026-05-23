@@ -172,6 +172,17 @@ install(TARGETS test_sim_repeat
         )
 
 # #################################################
+# Python scripts
+# #################################################
+if (catkin_FOUND AND ENABLE_ROS)
+    catkin_install_python(PROGRAMS
+            scripts/imu_combiner.py
+            scripts/image_encoding_fix.py
+            DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+            )
+endif ()
+
+# #################################################
 # Launch files!
 # #################################################
 install(DIRECTORY launch/

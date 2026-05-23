@@ -1,0 +1,138 @@
+%YAML:1.0 # need to specify the file type at the top!
+
+verbosity: "INFO" # ALL, DEBUG, INFO, WARNING, ERROR, SILENT
+
+use_fej: true
+integration: "rk4"
+use_stereo: false
+max_cameras: 1 # monocular — D435I bag contains Infrared 1 only
+
+use_imuavg: true
+use_rk4int: true
+
+calib_cam_extrinsics: true
+calib_cam_intrinsics: true
+calib_cam_timeoffset: true
+calib_imu_intrinsics: false
+calib_imu_g_sensitivity: false
+
+max_clones: 11
+max_slam: 25
+max_slam_in_update: 25
+max_msckf_in_update: 20
+dt_slam_delay: 2
+
+gravity_mag: 9.8065  # RPNG lab (Newark, DE)
+
+feat_rep_msckf: "GLOBAL_3D"
+feat_rep_slam: "GLOBAL_3D"
+feat_rep_aruco: "GLOBAL_3D"
+
+try_zupt: false
+zupt_chi2_multipler: 0
+zupt_max_velocity: 0.1
+zupt_noise_multiplier: 50
+zupt_max_disparity: 1.5
+zupt_only_at_beginning: true
+
+# ==================================================================
+
+init_window_time: 2.0
+init_imu_thresh: 0.5
+init_max_disparity: 4.0
+init_max_features: 200
+
+init_window_offset: 0.01
+init_grav_opt_max_iter: 100
+init_grav_opt_init_lambda: 100
+init_grav_opt_converge_thres: 1e-6
+init_grav_opt_lambda_decay: 0.2
+init_grav_min_feat: 10
+
+init_prior_q: 0.1
+init_prior_p: 0.0
+init_prior_v: 1.0
+init_prior_bg: 0.01
+init_prior_ba: 0.05
+
+init_prior_t: 0.005     # time offset: hardware-synced, real offset < 2.5 ms
+init_prior_qc: 0.05     # cam-IMU rotation: allow ~3 deg correction
+init_prior_pc: 0.05     # cam-IMU translation: allow up to 5 cm correction
+init_prior_fc: 0.05     # focal length: allow ~5% correction from factory value
+init_prior_dc1: 0.1     # k1 radial distortion: factory is 0, real value may be ±0.05
+init_prior_dc2: 0.01    # k2 radial distortion: loosen from near-zero lock
+
+init_use_fej: false
+init_max_reproj: 3.0
+init_dyn_mle_max_iter: 10
+init_ba_dx_converge_thres: 1e-6
+init_ba_res_converge_thres: 1e-4
+init_min_feat: 20
+init_max_feat: 50
+init_ba_huber_th: 999.0
+init_max_slam: 50
+
+step_debug: false
+optimizer_debug: false
+eigenvector_debug: false
+residual_debug: false
+dof: 1
+
+record_init_pose: true
+record_init_timing: true
+init_poses_log_file_path: /tmp/init_window_poses.txt
+init_metadata_log_file_path: /tmp/init_window_timing.txt
+
+use_bg_estimator: true
+init_dyn_use: false
+init_dyn_num_pose: 5
+init_dyn_min_deg: -1
+
+init_dyn_bias_g: [ 0.0, 0.0, 0.0 ]
+init_dyn_bias_a: [ 0.0, 0.0, 0.0 ]
+
+# ==================================================================
+
+record_timing_information: false
+record_timing_filepath: "/tmp/traj_timing.txt"
+
+save_total_state: false
+filepath_est: "/tmp/ov_estimate.txt"
+filepath_std: "/tmp/ov_estimate_std.txt"
+filepath_gt: "/tmp/ov_groundtruth.txt"
+
+# ==================================================================
+
+use_klt: true
+num_pts: 200
+fast_threshold: 30
+grid_x: 8
+grid_y: 8
+min_px_dist: 20
+ransac_th: 2.0
+knn_ratio: 0.70
+track_frequency: 31.0 # IR recorded at ~15 Hz; set 2x to accept all frames despite jitter
+downsample_cameras: false
+num_opencv_threads: 4
+histogram_method: "HISTOGRAM"
+
+use_aruco: false
+num_aruco: 1024
+downsize_aruco: true
+
+fi_refine_features: false
+
+# ==================================================================
+
+up_msckf_sigma_px: 1
+up_msckf_chi2_multipler: 1
+up_slam_sigma_px: 1
+init_slam_chi2_multipler: 1
+up_slam_chi2_multipler: 1
+up_aruco_sigma_px: 1
+up_aruco_chi2_multipler: 1
+
+use_mask: false
+
+relative_config_imu: "kalibr_imu_chain.yaml"
+relative_config_imucam: "kalibr_imucam_chain.yaml"

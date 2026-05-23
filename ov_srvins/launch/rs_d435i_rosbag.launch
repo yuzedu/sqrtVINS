@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+
+    <!-- ============================================================
+         sqrtVINS on Intel RealSense D435I rosbag
+         Bag topics:
+           /device_0/sensor_0/Infrared_1/image/data  (mono IR, ~15 Hz)
+           /device_0/sensor_2/Gyro_0/imu/data        (~200 Hz)
+           /device_0/sensor_2/Accel_0/imu/data       (~200 Hz)
+         The imu_combiner node merges gyro + accel → /imu0
+         ============================================================ -->
+
+    <arg name="bag"        default="$(find ov_srvins)/../rosbags/session1_20260519_133443.bag"/>
+    <arg name="bag_start"  default="0"/>
+    <arg name="bag_rate"   default="1"/>
+    <arg name="verbosity"  default="INFO"/>
+
+    <!-- camera:=ir  uses Infrared 1 (8UC1 relabel)  -->
+    <!-- camera:=rgb uses Color     (rgb8 -> mono8 conversion) -->
+    <arg name="camera"     default="ir"/>
+
+    <!-- rviz visualization -->
+    <arg name="dorviz"     default="true"/>
+    <arg name="rviz_cfg"   default="$(find ov_srvins)/launch/display.rviz"/>
+
+    <!-- saving trajectory -->
+    <arg name="dosave"     default="false"/>
+    <arg name="path_est"   default="/tmp/traj_estimate.txt"/>
+
+    <!-- timing statistics -->
+    <arg name="dotime"     default="false"/>
+    <arg name="path_time"  default="/tmp/traj_timing.txt"/>
+
+    <!-- ============================================================
+         1a. Image fix: 8UC1->mono8 (IR) or rgb8->mono8 (Color)
+         ============================================================ -->
+    <node name="image_encoding_fix" pkg="ov_srvins" type="image_encoding_fix.py"
+          output="screen" required="true">
+        <param name="in_topic"  value="/device_0/sensor_0/Infrared_1/image/data"
+               if="$(eval arg('camera') == 'ir')"/>
+        <param name="out_topic" value="/camera/infra1/image_raw"
+               if="$(eval arg('camera') == 'ir')"/>
+        <param name="in_topic"  value="/device_0/sensor_1/Color_0/image/data"
+               unless="$(eval arg('camera') == 'ir')"/>
+        <param name="out_topic" value="/camera/color/image_raw"
+               unless="$(eval arg('camera') == 'ir')"/>
+    </node>
+
+    <!-- ============================================================
+         1b. IMU combiner: merges separate gyro/accel topics into /imu0
+         ============================================================ -->
+    <node name="imu_combiner" pkg="ov_srvins" type="imu_combiner.py"
+          output="screen" required="true">
+        <param name="gyro_topic"  value="/device_0/sensor_2/Gyro_0/imu/data"/>
+        <param name="accel_topic" value="/device_0/sensor_2/Accel_0/imu/data"/>
+        <param name="imu_topic"   value="/imu0"/>
+    </node>
+
+    <!-- ============================================================
+         2. sqrtVINS estimator (monocular, D435I config)
+         ============================================================ -->
+    <node name="ov_srvins" pkg="ov_srvins" type="run_subscribe_msckf"
+          output="screen" clear_params="true" required="true">
+
+        <param name="verbosity"   type="string" value="$(arg verbosity)"/>
+        <param name="config_path" type="string"
+               value="$(find ov_srvins)/../config/rs_d435i/estimator_config.yaml"
+               if="$(eval arg('camera') == 'ir')"/>
+        <param name="config_path" type="string"
+               value="$(find ov_srvins)/../config/rs_d435i_rgb/estimator_config.yaml"
+               unless="$(eval arg('camera') == 'ir')"/>
+
+        <param name="use_stereo"  type="bool"   value="false"/>
+        <param name="max_cameras" type="int"    value="1"/>
+
+        <param name="record_timing_information" type="bool"   value="$(arg dotime)"/>
+        <param name="record_timing_filepath"    type="string" value="$(arg path_time)"/>
+
+    </node>
+
+    <!-- ============================================================
+         3. Save trajectory if requested
+         ============================================================ -->
+    <group if="$(arg dosave)">
+        <node name="recorder_estimate" pkg="ov_eval" type="pose_to_file"
+              output="screen" required="true">
+            <param name="topic"      type="str" value="/ov_srvins/poseimu"/>
+            <param name="topic_type" type="str" value="PoseWithCovarianceStamped"/>
+            <param name="output"     type="str" value="$(arg path_est)"/>
+        </node>
+    </group>
+
+    <!-- ============================================================
+         4. RViz (optional)
+         ============================================================ -->
+    <group if="$(arg dorviz)">
+        <node name="rviz" pkg="rviz" type="rviz" output="log"
+              args="-d $(arg rviz_cfg)"/>
+    </group>
+
+    <!-- ============================================================
+         5. Play the rosbag (delayed 2 s to let nodes initialise)
+         ============================================================ -->
+    <node pkg="rosbag" type="play" name="rosbag_play" output="screen"
+          args="-d 2 -r $(arg bag_rate) -s $(arg bag_start) $(arg bag)"
+          required="true"/>
+
+</launch>

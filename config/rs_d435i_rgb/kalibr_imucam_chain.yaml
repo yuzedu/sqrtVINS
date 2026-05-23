@@ -1,0 +1,26 @@
+%YAML:1.0
+
+# Intel RealSense D435I - Color (RGB) monocular configuration
+# Intrinsics from factory calibration (camera_info in bag) at 848x480
+# Extrinsics from "Gyro" To "Color" in rs-enumerate-devices.txt
+
+cam0:
+  # T_cam_imu: transforms points from IMU (Gyro) frame to Color camera frame
+  # From rs-enumerate-devices: Extrinsic from "Gyro" To "Color"
+  #   R (slight tilt), T = [0.02045, -0.00537, -0.01122]
+  T_cam_imu:
+    - [ 0.999965,    0.00287505, -0.0078303,   0.0204547308385372 ]
+    - [-0.00285013,  0.999991,    0.00319236, -0.00536973588168621]
+    - [ 0.0078394,  -0.00316993,  0.999964,  -0.0112186204642057  ]
+    - [ 0.0,         0.0,         0.0,         1.0                ]
+  cam_overlaps: []
+  camera_model: pinhole
+  # Factory calibration reports zero distortion for the Color module;
+  # calib_cam_intrinsics: true will refine online.
+  distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
+  distortion_model: radtan
+  # fu, fv, cu, cv  (Color / 848x480 from camera_info in bag)
+  intrinsics: [605.9661865234375, 605.6219482421875, 439.0120849609375, 244.9783477783203]
+  resolution: [848, 480]
+  rostopic: /camera/color/image_raw
+  timeshift_cam_imu: 0.0

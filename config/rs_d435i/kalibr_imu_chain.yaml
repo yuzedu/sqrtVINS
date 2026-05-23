@@ -1,0 +1,38 @@
+%YAML:1.0
+
+imu0:
+  T_i_b:
+    - [1.0, 0.0, 0.0, 0.0]
+    - [0.0, 1.0, 0.0, 0.0]
+    - [0.0, 0.0, 1.0, 0.0]
+    - [0.0, 0.0, 0.0, 1.0]
+  # Inflated noise values for D435I (D400 series BMI055/ICM IMU)
+  # White noise x2, bias random walk x10 relative to Allan variance typical values
+  accelerometer_noise_density: 0.00207649074  # [ m / s^2 / sqrt(Hz) ]
+  accelerometer_random_walk: 0.00041327852    # [ m / s^3 / sqrt(Hz) ]
+  gyroscope_noise_density: 0.00020544166      # [ rad / s / sqrt(Hz) ]
+  gyroscope_random_walk: 0.00001110622        # [ rad / s^2 / sqrt(Hz) ]
+  rostopic: /imu0
+  time_offset: 0.0
+  update_rate: 200.0
+  model: "kalibr"
+  Tw:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  R_IMUtoGYRO:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  Ta:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  R_IMUtoACC:
+    - [ 1.0, 0.0, 0.0 ]
+    - [ 0.0, 1.0, 0.0 ]
+    - [ 0.0, 0.0, 1.0 ]
+  Tg:
+    - [ 0.0, 0.0, 0.0 ]
+    - [ 0.0, 0.0, 0.0 ]
+    - [ 0.0, 0.0, 0.0 ]
