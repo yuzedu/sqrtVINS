@@ -1,32 +1,61 @@
 %YAML:1.0 # need to specify the file type at the top!
 
+# ============================================================
+# Robust sqrtVINS config:
+# D435I monocular IR1 + IMU
+# Quadruped walking through grass
+# Low light, vibration, moving vegetation
+# ============================================================
+
 verbosity: "INFO" # ALL, DEBUG, INFO, WARNING, ERROR, SILENT
+
+# ============================================================
+# Core estimator
+# ============================================================
 
 use_fej: true
 integration: "rk4"
-use_stereo: false
-max_cameras: 1 # monocular — D435I bag contains Infrared 1 only
 
+# Monocular D435I IR1 only
+use_stereo: false
+max_cameras: 1
+
+# Keep these enabled if your sqrtVINS branch uses them.
 use_imuavg: true
 use_rk4int: true
 
-calib_cam_extrinsics: true
-calib_cam_intrinsics: true
+# For rough outdoor walking, do not let bad low-light tracks
+# freely recalibrate the system during the first robust run.
+# Re-enable extrinsics/time offset only after stable baseline runs.
+calib_cam_extrinsics: false
+calib_cam_intrinsics: false
 calib_cam_timeoffset: true
-calib_imu_intrinsics: false
+calib_imu_intrinsics: true
 calib_imu_g_sensitivity: false
 
-max_clones: 11
-max_slam: 25
-max_slam_in_update: 25
-max_msckf_in_update: 20
-dt_slam_delay: 2
+# Slightly longer clone window helps at ~15 Hz camera rate.
+max_clones: 15
 
-gravity_mag: 9.8065  # RPNG lab (Newark, DE)
+# Grass produces many unstable landmarks, so prefer MSCKF tracks
+# and keep persistent SLAM features modest.
+max_slam: 20
+max_slam_in_update: 30
+max_msckf_in_update: 40
+dt_slam_delay: 3
 
+gravity_mag: 9.8065  # RPNG lab / Newark, DE; adjust for your deployment site if needed
+
+# Monocular robust feature representations.
 feat_rep_msckf: "GLOBAL_3D"
-feat_rep_slam: "GLOBAL_3D"
-feat_rep_aruco: "GLOBAL_3D"
+feat_rep_slam: "ANCHORED_MSCKF_INVERSE_DEPTH"
+feat_rep_aruco: "ANCHORED_MSCKF_INVERSE_DEPTH"
+
+# ============================================================
+# Zero velocity update
+# ============================================================
+# For a quadruped, footfall vibration and start/stop motion often
+# make ZUPT unreliable. Keep off unless you have a verified static
+# detector.
 
 try_zupt: false
 zupt_chi2_multipler: 0
@@ -35,13 +64,24 @@ zupt_noise_multiplier: 50
 zupt_max_disparity: 1.5
 zupt_only_at_beginning: true
 
-# ==================================================================
+# ============================================================
+# Initialization
+# ============================================================
 
-init_window_time: 2.0
-init_imu_thresh: 0.5
-init_max_disparity: 4.0
-init_max_features: 200
+# Longer than default to survive low light and grass outliers.
+init_window_time: 0.5
 
+# Higher than handheld/static threshold to avoid triggering on
+# footfall vibration alone.
+init_imu_thresh: 0.1
+
+# Allow some image motion during initialization.
+init_max_disparity: 5.0
+
+# More features for low light; reduce to 150-200 if CPU is overloaded.
+init_max_features: 250
+
+# Priors used by your branch.
 init_window_offset: 0.01
 init_grav_opt_max_iter: 100
 init_grav_opt_init_lambda: 100
@@ -50,27 +90,71 @@ init_grav_opt_lambda_decay: 0.2
 init_grav_min_feat: 10
 
 init_prior_q: 0.1
-init_prior_p: 0.0
-init_prior_v: 1.0
+init_prior_p: 0.001
+init_prior_v: 0.01
 init_prior_bg: 0.01
 init_prior_ba: 0.05
 
-init_prior_t: 0.005     # time offset: hardware-synced, real offset < 2.5 ms
-init_prior_qc: 0.05     # cam-IMU rotation: allow ~3 deg correction
-init_prior_pc: 0.05     # cam-IMU translation: allow up to 5 cm correction
-init_prior_fc: 0.05     # focal length: allow ~5% correction from factory value
-init_prior_dc1: 0.1     # k1 radial distortion: factory is 0, real value may be ±0.05
-init_prior_dc2: 0.01    # k2 radial distortion: loosen from near-zero lock
+# Hardware-synced D435I: keep tight, but not zero.
+init_prior_t: 0.005
+
+# These only matter if online calibration is enabled.
+init_prior_qc: 0.05
+init_prior_pc: 0.05
+init_prior_fc: 0.05
+init_prior_dc1: 0.1
+init_prior_dc2: 0.01
 
 init_use_fej: false
 init_max_reproj: 3.0
-init_dyn_mle_max_iter: 10
+init_dyn_mle_max_iter: 50
 init_ba_dx_converge_thres: 1e-6
 init_ba_res_converge_thres: 1e-4
 init_min_feat: 20
-init_max_feat: 50
-init_ba_huber_th: 999.0
-init_max_slam: 50
+init_max_feat: 80
+
+# Use robust BA rather than effectively disabling Huber.
+init_ba_huber_th: 5.0
+init_max_slam: 40
+
+# ============================================================
+# Dynamic initialization
+# ============================================================
+# CRITICAL: enabled for walking start / non-static start.
+
+init_dyn_use: true
+
+# Do not optimize calibration during dynamic init for low-light grass.
+init_dyn_mle_opt_calib: false
+
+# Dynamic init MLE budget.
+init_dyn_mle_max_iter: 50
+init_dyn_mle_max_time: 0.08
+init_dyn_mle_max_threads: 4
+
+# More poses than default for a 2 sec / ~15 Hz window.
+init_dyn_num_pose: 10
+
+# Require real rotational excitation; avoids initializing from weak,
+# nearly straight, low-parallax starts.
+init_dyn_min_deg: 8.0
+
+# Conservative covariance inflation for rough legged motion.
+init_dyn_inflation_ori: 10
+init_dyn_inflation_vel: 100
+init_dyn_inflation_bg: 10
+init_dyn_inflation_ba: 100
+init_dyn_min_rec_cond: 1e-12
+
+# If you have calibrated IMU biases from stationary logs, put them here.
+init_dyn_bias_g: [ 0.0, 0.0, 0.0 ]
+init_dyn_bias_a: [ 0.0, 0.0, 0.0 ]
+
+use_bg_estimator: true
+
+# ============================================================
+# Debug / init logging
+# ============================================================
 
 step_debug: false
 optimizer_debug: false
@@ -80,18 +164,12 @@ dof: 1
 
 record_init_pose: true
 record_init_timing: true
-init_poses_log_file_path: /tmp/init_window_poses.txt
-init_metadata_log_file_path: /tmp/init_window_timing.txt
+init_poses_log_file_path: "/tmp/init_window_poses.txt"
+init_metadata_log_file_path: "/tmp/init_window_timing.txt"
 
-use_bg_estimator: true
-init_dyn_use: false
-init_dyn_num_pose: 5
-init_dyn_min_deg: -1
-
-init_dyn_bias_g: [ 0.0, 0.0, 0.0 ]
-init_dyn_bias_a: [ 0.0, 0.0, 0.0 ]
-
-# ==================================================================
+# ============================================================
+# Output / timing
+# ============================================================
 
 record_timing_information: false
 record_timing_filepath: "/tmp/traj_timing.txt"
@@ -101,38 +179,78 @@ filepath_est: "/tmp/ov_estimate.txt"
 filepath_std: "/tmp/ov_estimate_std.txt"
 filepath_gt: "/tmp/ov_groundtruth.txt"
 
-# ==================================================================
 
 use_klt: true
-num_pts: 200
-fast_threshold: 30
-grid_x: 8
-grid_y: 8
-min_px_dist: 20
-ransac_th: 2.0
-knn_ratio: 0.70
-track_frequency: 31.0 # IR recorded at ~15 Hz; set 2x to accept all frames despite jitter
+
+# More points for low light / sparse IR texture.
+num_pts: 400
+
+# Lower FAST threshold for dark IR images.
+# If you get too many noisy corners, raise to 15-18.
+fast_threshold: 8
+
+# Slightly denser grid helps avoid all features collecting on grass.
+grid_x: 6
+grid_y: 6
+
+# Smaller spacing than indoor defaults, but not too small.
+min_px_dist: 25
+
+# Stricter RANSAC for moving grass / leg occlusions.
+ransac_th: 1.5
+
+knn_ratio: 0.90
+
+# D435I bag has ~15 Hz image stream. Use 30 so jitter does not drop frames.
+track_frequency: 30.0
+
 downsample_cameras: false
 num_opencv_threads: 4
+
+# Best first choice for low-light uneven illumination.
+# Try "HISTOGRAM" if CLAHE amplifies image noise too much.
 histogram_method: "HISTOGRAM"
+
+# Feature refinement helps noisy low-light tracks if CPU allows.
+fi_refine_features: true
+
+# ============================================================
+# ArUco
+# ============================================================
 
 use_aruco: false
 num_aruco: 1024
 downsize_aruco: true
 
-fi_refine_features: false
+# ============================================================
+# Update noise / outlier gating
+# ============================================================
+# Low light increases pixel noise, so use slightly larger sigma.
+# Grass is dynamic, so keep chi2 multipliers slightly strict.
 
-# ==================================================================
+up_msckf_sigma_px: 1.5
+up_msckf_chi2_multipler: 0.8
 
-up_msckf_sigma_px: 1
-up_msckf_chi2_multipler: 1
-up_slam_sigma_px: 1
-init_slam_chi2_multipler: 1
-up_slam_chi2_multipler: 1
+up_slam_sigma_px: 2.0
+init_slam_chi2_multipler: 0.8
+up_slam_chi2_multipler: 0.8
+
 up_aruco_sigma_px: 1
 up_aruco_chi2_multipler: 1
 
+# ============================================================
+# Masks
+# ============================================================
+# Drop-in safe default is false.
+# Strongly recommend setting true after adding masks in your camera config:
+# - mask robot legs/body
+# - mask bottom 20-35% if mostly close grass
+# - mask image borders, IR artifacts, timestamps, glare
 use_mask: false
+
+# ============================================================
+# Sensor calibration files
+# ============================================================
 
 relative_config_imu: "kalibr_imu_chain.yaml"
 relative_config_imucam: "kalibr_imucam_chain.yaml"

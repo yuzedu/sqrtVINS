@@ -84,7 +84,7 @@ init_poses_log_file_path: /tmp/init_window_poses.txt
 init_metadata_log_file_path: /tmp/init_window_timing.txt
 
 use_bg_estimator: true
-init_dyn_use: false
+init_dyn_use: true
 init_dyn_num_pose: 5
 init_dyn_min_deg: -1
 
@@ -105,10 +105,10 @@ filepath_gt: "/tmp/ov_groundtruth.txt"
 
 use_klt: true
 num_pts: 200
-fast_threshold: 30
-grid_x: 8
-grid_y: 8
-min_px_dist: 20
+fast_threshold: 10
+grid_x: 5
+grid_y: 5
+min_px_dist: 10
 ransac_th: 2.0
 knn_ratio: 0.70
 track_frequency: 31.0 # Color recorded at ~15 Hz; set 2x to accept all frames despite jitter
@@ -120,7 +120,7 @@ use_aruco: false
 num_aruco: 1024
 downsize_aruco: true
 
-fi_refine_features: false
+fi_refine_features: true
 
 # ==================================================================
 

@@ -105,7 +105,7 @@ roslaunch ov_srvins rs_d435i_rosbag.launch \
 ```bash
 roslaunch ov_srvins rs_d435i_rosbag.launch \
   bag:="/catkin_ws/src/sqrtVINS/rosbags/Rgb+infrared/stones/stones_20260523_102057/front_rs_20260523_102057.bag" \
-  camera:=ir
+  camera:=rgb
 ```
 
 ---
