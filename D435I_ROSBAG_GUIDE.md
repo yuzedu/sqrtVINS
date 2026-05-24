@@ -37,6 +37,7 @@ exit
 
 ```bash
 docker run -it --rm \
+  --name sqrtvins \
   -v /home/yuzedu/sqrt_ws:/catkin_ws \
   -e DISPLAY=$DISPLAY \
   -v /tmp/.X11-unix:/tmp/.X11-unix \
@@ -54,7 +55,28 @@ roslaunch ov_srvins rs_d435i_rosbag.launch \
   camera:=ir        # ir (default) or rgb
 ```
 
-Add `dorviz:=false` to skip RViz, `dosave:=true` to save the trajectory to `/tmp/traj_estimate.txt`.
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `camera:=ir\|rgb` | `ir` | Camera mode |
+| `dorviz:=false` | `true` | Disable RViz |
+| `dosave:=true path_est:=<file>` | — | Save pose trajectory (PoseWithCovarianceStamped) |
+| `dosave_vel:=true path_body_vel:=<file>` | — | Save body-frame velocity output (see below) |
+
+### Body velocity output
+
+When `dosave_vel:=true`, the estimator writes one line per camera frame to `path_body_vel` with these columns:
+
+```
+timestamp px py pz qx qy qz qw vx vy vz wx wy wz num_msckf_points num_slam_points cov_v_00 cov_v_01 cov_v_02 cov_v_11 cov_v_12 cov_v_22
+```
+
+- `px py pz` — position in global frame
+- `qx qy qz qw` — orientation quaternion (global-to-IMU, JPL, written as x y z w)
+- `vx vy vz` — linear velocity in IMU/body frame (post visual update)
+- `wx wy wz` — bias-corrected angular velocity in IMU/body frame (from latest gyro)
+- `num_msckf_points` — MSCKF features used in the latest update
+- `num_slam_points` — active SLAM landmarks in state
+- `cov_v_*` — upper triangle of 3x3 velocity covariance in body frame (row-major: 00 01 02 11 12 22)
 
 ---
 
@@ -77,35 +99,45 @@ All bags are under `rosbags/Rgb+infrared/`. Every bag contains both IR and RGB s
 ```bash
 roslaunch ov_srvins rs_d435i_rosbag.launch \
   bag:="/catkin_ws/src/sqrtVINS/rosbags/Rgb+infrared/front_rs_20260523_101937.bag" \
-  camera:=ir
+  camera:=ir\
+  dosave_vel:=true \
+  path_body_vel:=/catkin_ws/src/sqrtVINS/rosbags/body_velocity.txt
 ```
 
 **Indoor front (94 s)**
 ```bash
 roslaunch ov_srvins rs_d435i_rosbag.launch \
   bag:="/catkin_ws/src/sqrtVINS/rosbags/Rgb+infrared/front_rs_20260523_101132-001.bag" \
-  camera:=ir
+  camera:=ir\
+  dosave_vel:=true \
+  path_body_vel:=/catkin_ws/src/sqrtVINS/rosbags/body_velocity.txt
 ```
 
 **Corridor lights-off**
 ```bash
 roslaunch ov_srvins rs_d435i_rosbag.launch \
   bag:="/catkin_ws/src/sqrtVINS/rosbags/Rgb+infrared/corri_lightoff/corri_lightoff_20260523_101011/front_rs_20260523_101011.bag" \
-  camera:=ir
+  camera:=ir\
+  dosave_vel:=true \
+  path_body_vel:=/catkin_ws/src/sqrtVINS/rosbags/body_velocity.txt
 ```
 
 **Outdoor grass**
 ```bash
 roslaunch ov_srvins rs_d435i_rosbag.launch \
   bag:="/catkin_ws/src/sqrtVINS/rosbags/Rgb+infrared/grass/grass_20260523_102353/front_rs_20260523_102353.bag" \
-  camera:=ir
+  camera:=ir\
+  dosave_vel:=true \
+  path_body_vel:=/catkin_ws/src/sqrtVINS/rosbags/body_velocity.txt
 ```
 
 **Outdoor stones**
 ```bash
 roslaunch ov_srvins rs_d435i_rosbag.launch \
   bag:="/catkin_ws/src/sqrtVINS/rosbags/Rgb+infrared/stones/stones_20260523_102057/front_rs_20260523_102057.bag" \
-  camera:=rgb
+  camera:=ir \
+  dosave_vel:=true \
+  path_body_vel:=/catkin_ws/src/sqrtVINS/rosbags/body_velocity.txt
 ```
 
 ---

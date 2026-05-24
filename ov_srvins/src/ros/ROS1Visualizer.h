@@ -215,6 +215,10 @@ protected:
   // Files and if we should save total state
   bool save_total_state = false;
   std::ofstream of_state_est, of_state_std, of_state_gt;
+
+  // File for body-frame velocity output (camera-rate, post visual update)
+  bool save_body_velocity = false;
+  std::ofstream of_body_vel;
 };
 
 } // namespace ov_srvins

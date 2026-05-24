@@ -27,6 +27,10 @@
     <arg name="dosave"     default="false"/>
     <arg name="path_est"   default="/tmp/traj_estimate.txt"/>
 
+    <!-- saving body-frame velocity output -->
+    <arg name="dosave_vel"    default="false"/>
+    <arg name="path_body_vel" default="/tmp/body_velocity.txt"/>
+
     <!-- timing statistics -->
     <arg name="dotime"     default="false"/>
     <arg name="path_time"  default="/tmp/traj_timing.txt"/>
@@ -75,6 +79,9 @@
 
         <param name="record_timing_information" type="bool"   value="$(arg dotime)"/>
         <param name="record_timing_filepath"    type="string" value="$(arg path_time)"/>
+
+        <param name="save_body_velocity"  type="bool"   value="$(arg dosave_vel)"/>
+        <param name="filepath_body_vel"   type="string" value="$(arg path_body_vel)"/>
 
     </node>
 

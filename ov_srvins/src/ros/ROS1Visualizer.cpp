@@ -29,6 +29,8 @@
 
 #include "ROS1Visualizer.h"
 
+#include <iomanip>
+
 #include "core/VioManager.h"
 #include "ros/ROSVisualizerHelper.h"
 #include "sim/Simulator.h"
@@ -143,6 +145,20 @@ ROS1Visualizer::ROS1Visualizer(std::shared_ptr<ros::NodeHandle> nh,
                      "cam0_d cam0_rot cam0_trans .... etc"
                   << std::endl;
     }
+  }
+
+  // Load if we should save body-frame velocity to file
+  nh->param<bool>("save_body_velocity", save_body_velocity, false);
+  if (save_body_velocity) {
+    std::string filepath_body_vel;
+    nh->param<std::string>("filepath_body_vel", filepath_body_vel, "body_velocity.txt");
+    if (boost::filesystem::exists(filepath_body_vel))
+      boost::filesystem::remove(filepath_body_vel);
+    boost::filesystem::create_directories(
+        boost::filesystem::path(filepath_body_vel.c_str()).parent_path());
+    of_body_vel.open(filepath_body_vel.c_str());
+    of_body_vel << "# timestamp px py pz qx qy qz qw vx vy vz wx wy wz num_msckf_points num_slam_points"
+                   " cov_v_00 cov_v_01 cov_v_02 cov_v_11 cov_v_12 cov_v_22" << std::endl;
   }
 
   // Start thread for the image publishing
@@ -660,6 +676,47 @@ void ROS1Visualizer::publish_state() {
 
   // Move them forward in time
   poses_seq_imu++;
+
+  // Write body-frame velocity output at camera rate (post visual update)
+  if (save_body_velocity && of_body_vel.is_open()) {
+
+    // Position and orientation (already in global frame)
+    Vec3 p_IinG = state->imu->pos();
+    Vec4 q_GtoI = state->imu->quat(); // [x, y, z, w]
+
+    // Linear velocity rotated from global to body frame
+    Mat3 R_GtoI = state->imu->Rot();
+    Vec3 v_IinI = R_GtoI * state->imu->vel();
+
+    // Angular velocity: latest bias-corrected gyro measurement
+    Vec3 w_IinI = Vec3::Zero();
+    {
+      std::vector<ov_core::ImuData> imu_data;
+      _app->get_propagator()->get_imu_data(imu_data);
+      if (!imu_data.empty())
+        w_IinI = imu_data.back().wm - state->imu->bias_g();
+    }
+
+    // Feature counts
+    int num_msckf = (int)_app->get_good_features_MSCKF().size();
+    int num_slam = (int)state->features_SLAM.size();
+
+    // Velocity covariance in body frame: R * C_vv_global * R^T, upper triangle
+    Eigen::Matrix<DataType, 3, 3> C_vv =
+        StateHelper::get_marginal_covariance(state, {state->imu->v()});
+    Eigen::Matrix<DataType, 3, 3> C_vv_body = R_GtoI * C_vv * R_GtoI.transpose();
+
+    of_body_vel << std::fixed << std::setprecision(9) << timestamp_inI;
+    of_body_vel << " " << p_IinG(0) << " " << p_IinG(1) << " " << p_IinG(2);
+    of_body_vel << " " << q_GtoI(0) << " " << q_GtoI(1) << " " << q_GtoI(2) << " " << q_GtoI(3);
+    of_body_vel << " " << v_IinI(0) << " " << v_IinI(1) << " " << v_IinI(2);
+    of_body_vel << " " << w_IinI(0) << " " << w_IinI(1) << " " << w_IinI(2);
+    of_body_vel << " " << num_msckf << " " << num_slam;
+    of_body_vel << " " << C_vv_body(0,0) << " " << C_vv_body(0,1) << " " << C_vv_body(0,2);
+    of_body_vel << " " << C_vv_body(1,1) << " " << C_vv_body(1,2);
+    of_body_vel << " " << C_vv_body(2,2);
+    of_body_vel << "\n";
+  }
 }
 
 void ROS1Visualizer::publish_images() {
