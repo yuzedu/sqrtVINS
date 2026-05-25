@@ -33,6 +33,7 @@
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/Imu.h>
 
+#include <algorithm>
 #include <memory>
 
 #include "core/VioManager.h"
@@ -89,11 +90,22 @@ int main(int argc, char **argv) {
   //===================================================================================
   //===================================================================================
 
-  // Our imu topic
+  // Our imu topic (single combined) or split gyro+accel topics
   std::string topic_imu;
   nh->param<std::string>("topic_imu", topic_imu, "/imu0");
   parser->parse_external("relative_config_imu", "imu0", "rostopic", topic_imu);
-  PRINT_DEBUG("[SERIAL]: imu: %s\n", topic_imu.c_str());
+
+  std::string topic_gyro, topic_accel;
+  nh->param<std::string>("topic_gyro", topic_gyro, "");
+  nh->param<std::string>("topic_accel", topic_accel, "");
+  bool split_imu = !topic_gyro.empty() && !topic_accel.empty();
+
+  if (split_imu) {
+    PRINT_DEBUG("[SERIAL]: split IMU mode — gyro: %s  accel: %s\n",
+                topic_gyro.c_str(), topic_accel.c_str());
+  } else {
+    PRINT_DEBUG("[SERIAL]: imu: %s\n", topic_imu.c_str());
+  }
 
   // Our camera topics
   std::vector<std::string> topic_cameras;
@@ -172,41 +184,40 @@ int main(int argc, char **argv) {
   // read NOTE: thus we just check the topic which allows us to quickly loop
   // through the index NOTE: see this PR
   // https://github.com/ros/ros_comm/issues/117
+  // In split-IMU mode, accel messages are buffered separately for interpolation.
+  // Gyro messages go into the main msgs vector (time-sorted alongside cameras).
   double max_camera_time = -1;
   std::vector<rosbag::MessageInstance> msgs;
+  std::vector<sensor_msgs::Imu::ConstPtr> accel_buf; // only used in split_imu mode
+
   for (const rosbag::MessageInstance &msg : view) {
     if (!ros::ok())
       break;
-    if (msg.getTopic() == topic_imu) {
-      // if (msg.instantiate<sensor_msgs::Imu>() == nullptr) {
-      //   PRINT_ERROR(RED "[SERIAL]: IMU topic has unmatched message types!!\n"
-      //   RESET); PRINT_ERROR(RED "[SERIAL]: Supports: sensor_msgs::Imu\n"
-      //   RESET); return EXIT_FAILURE;
-      // }
-      msgs.push_back(msg);
+    if (split_imu) {
+      if (msg.getTopic() == topic_gyro)
+        msgs.push_back(msg);
+      else if (msg.getTopic() == topic_accel)
+        accel_buf.push_back(msg.instantiate<sensor_msgs::Imu>());
+    } else {
+      if (msg.getTopic() == topic_imu)
+        msgs.push_back(msg);
     }
     for (int i = 0; i < params.state_options.num_cameras; i++) {
       if (msg.getTopic() == topic_cameras.at(i)) {
-        // sensor_msgs::CompressedImage::ConstPtr img_c =
-        // msg.instantiate<sensor_msgs::CompressedImage>();
-        // sensor_msgs::Image::ConstPtr img_i =
-        // msg.instantiate<sensor_msgs::Image>(); if (img_c == nullptr && img_i
-        // == nullptr) {
-        //   PRINT_ERROR(RED "[SERIAL]: Image topic has unmatched message
-        //   types!!\n" RESET); PRINT_ERROR(RED "[SERIAL]: Supports:
-        //   sensor_msgs::Image and sensor_msgs::CompressedImage\n" RESET);
-        //   return EXIT_FAILURE;
-        // }
         msgs.push_back(msg);
         max_camera_time = std::max(max_camera_time, msg.getTime().toSec());
       }
     }
   }
-  PRINT_DEBUG("[SERIAL]: total of %zu messages!\n", msgs.size());
+  PRINT_INFO("[SERIAL]: total of %zu messages (%zu accel samples buffered)\n",
+             msgs.size(), accel_buf.size());
 
   //===================================================================================
   //===================================================================================
   //===================================================================================
+
+  // Forward pointer into accel_buf for O(n) interpolation in split-IMU mode
+  size_t accel_idx = 0;
 
   // Loop through our message array, and lets process them
   std::set<int> used_index;
@@ -227,17 +238,57 @@ int main(int argc, char **argv) {
     }
 
     // IMU processing
-    if (msgs.at(m).getTopic() == topic_imu) {
-      // PRINT_DEBUG("processing imu = %.3f sec\n", msgs.at(m).getTime().toSec()
-      // - time_init.toSec());
-      viz->callback_inertial(msgs.at(m).instantiate<sensor_msgs::Imu>());
+    const std::string &msg_topic = msgs.at(m).getTopic();
+    bool is_imu = split_imu ? (msg_topic == topic_gyro) : (msg_topic == topic_imu);
+    if (is_imu) {
+      sensor_msgs::Imu::ConstPtr imu_msg;
+      if (!split_imu) {
+        imu_msg = msgs.at(m).instantiate<sensor_msgs::Imu>();
+      } else {
+        // Combine gyro with linearly interpolated accel
+        auto gyro = msgs.at(m).instantiate<sensor_msgs::Imu>();
+        double t = gyro->header.stamp.toSec();
+
+        // Advance accel pointer so accel_buf[accel_idx+1].t >= t (O(n) total)
+        while (accel_idx + 1 < accel_buf.size() - 1 &&
+               accel_buf[accel_idx + 1]->header.stamp.toSec() < t)
+          accel_idx++;
+
+        double ax, ay, az;
+        if (accel_idx + 1 < accel_buf.size()) {
+          auto &a0 = accel_buf[accel_idx];
+          auto &a1 = accel_buf[accel_idx + 1];
+          double t0 = a0->header.stamp.toSec();
+          double t1 = a1->header.stamp.toSec();
+          double alpha = (t1 > t0) ? (t - t0) / (t1 - t0) : 0.0;
+          alpha = std::max(0.0, std::min(1.0, alpha));
+          ax = a0->linear_acceleration.x + alpha * (a1->linear_acceleration.x - a0->linear_acceleration.x);
+          ay = a0->linear_acceleration.y + alpha * (a1->linear_acceleration.y - a0->linear_acceleration.y);
+          az = a0->linear_acceleration.z + alpha * (a1->linear_acceleration.z - a0->linear_acceleration.z);
+        } else if (!accel_buf.empty()) {
+          ax = accel_buf.back()->linear_acceleration.x;
+          ay = accel_buf.back()->linear_acceleration.y;
+          az = accel_buf.back()->linear_acceleration.z;
+        } else {
+          continue; // no accel data yet
+        }
+
+        auto combined = boost::make_shared<sensor_msgs::Imu>(*gyro);
+        combined->header.frame_id = "imu";
+        combined->linear_acceleration.x = ax;
+        combined->linear_acceleration.y = ay;
+        combined->linear_acceleration.z = az;
+        combined->orientation_covariance[0] = -1.0;
+        imu_msg = combined;
+      }
+      viz->callback_inertial(imu_msg);
     }
 
     // Camera processing
     for (int cam_id = 0; cam_id < params.state_options.num_cameras; cam_id++) {
 
       // Skip if this message is not a camera topic
-      if (msgs.at(m).getTopic() != topic_cameras.at(cam_id))
+      if (msg_topic != topic_cameras.at(cam_id))
         continue;
 
       // We have a matching camera topic here, now find the other cameras for
@@ -283,20 +334,28 @@ int main(int argc, char **argv) {
         sys->initialize_with_gt(imustate);
       }
 
+      // Relabel 8UC1 → mono8 so cv_bridge can decode D435I infrared images
+      auto fix_encoding = [](sensor_msgs::Image::ConstPtr img) -> sensor_msgs::Image::ConstPtr {
+        if (img && img->encoding == "8UC1") {
+          auto copy = boost::make_shared<sensor_msgs::Image>(*img);
+          copy->encoding = "mono8";
+          return copy;
+        }
+        return img;
+      };
+
       // Pass our data into our visualizer callbacks!
-      // PRINT_DEBUG("processing cam = %.3f sec\n", msgs.at(m).getTime().toSec()
-      // - time_init.toSec());
       if (params.state_options.num_cameras == 1) {
         viz->callback_monocular(
-            msgs.at(camid_to_msg_index.at(0)).instantiate<sensor_msgs::Image>(),
+            fix_encoding(msgs.at(camid_to_msg_index.at(0)).instantiate<sensor_msgs::Image>()),
             0);
       } else if (params.state_options.num_cameras == 2) {
         auto msg0 = msgs.at(camid_to_msg_index.at(0));
         auto msg1 = msgs.at(camid_to_msg_index.at(1));
         used_index.insert(camid_to_msg_index.at(0)); // skip this message
         used_index.insert(camid_to_msg_index.at(1)); // skip this message
-        viz->callback_stereo(msg0.instantiate<sensor_msgs::Image>(),
-                             msg1.instantiate<sensor_msgs::Image>(), 0, 1);
+        viz->callback_stereo(fix_encoding(msg0.instantiate<sensor_msgs::Image>()),
+                             fix_encoding(msg1.instantiate<sensor_msgs::Image>()), 0, 1);
       } else {
         PRINT_ERROR(RED "[SERIAL]: We currently only support 1 or 2 camera "
                         "serial input....\n" RESET);

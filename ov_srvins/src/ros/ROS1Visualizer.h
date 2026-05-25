@@ -49,7 +49,9 @@
 #include <std_msgs/Float64.h>
 #include <tf/transform_broadcaster.h>
 
+#include <algorithm>
 #include <atomic>
+#include <deque>
 #include <fstream>
 #include <memory>
 #include <mutex>
@@ -219,6 +221,15 @@ protected:
   // File for body-frame velocity output (camera-rate, post visual update)
   bool save_body_velocity = false;
   std::ofstream of_body_vel;
+
+  // Sliding-window VIO health monitor
+  std::deque<bool> health_window_;
+  bool health_monitor_armed_ = false;  // becomes true after first frame with features
+  bool health_monitor_done_  = false;  // becomes true after FAIL is written
+  static constexpr int    HEALTH_WINDOW_SIZE   = 20;
+  static constexpr int    HEALTH_FAIL_COUNT    = 16;
+  static constexpr double HEALTH_COV_THRESHOLD = 0.005;
+  static constexpr int    HEALTH_FEAT_THRESHOLD = 5;
 };
 
 } // namespace ov_srvins

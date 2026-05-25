@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<launch>
+
+    <!-- ============================================================
+         sqrtVINS serial mode on Intel RealSense D435I rosbag
+         Uses ros1_serial_msckf: reads the bag file directly (no rosbag
+         play node), processes messages sequentially for deterministic,
+         repeatable output.
+
+         IMPORTANT — topic requirements:
+           The serial node reads raw topics from the bag.  A raw D435I bag
+           has separate gyro/accel streams and an 8UC1-encoded image, which
+           the serial node cannot combine or re-encode on the fly.
+
+           Option A (recommended): record a pre-processed bag by running
+             rs_d435i_rosbag.launch with a rosbag recorder capturing /imu0
+             and /camera/infra1/image_raw (or /camera/color/image_raw),
+             then point this launch at that bag.
+
+           Option B: override topic_imu / topic_camera0 to the raw bag
+             topic names if your serial node or config handles them natively.
+
+         Default topic expectations:
+           topic_imu     : /imu0
+           topic_camera0 : /camera/infra1/image_raw  (camera:=ir)
+                           /camera/color/image_raw   (camera:=rgb)
+         ============================================================ -->
+
+    <arg name="bag"        default="$(find ov_srvins)/../rosbags/session1_20260519_133443.bag"/>
+    <arg name="bag_start"  default="0"/>
+    <arg name="bag_durr"   default="-1"/>
+    <arg name="verbosity"  default="INFO"/>
+
+    <!-- camera:=ir  expects /camera/infra1/image_raw (mono8) -->
+    <!-- camera:=rgb expects /camera/color/image_raw  (mono8) -->
+    <arg name="camera"     default="ir"/>
+
+    <!-- Raw D435I bag topics (gyro + accel are separate streams; image is 8UC1) -->
+    <!-- Set topic_gyro and topic_accel to enable split-IMU combining.         -->
+    <!-- Leave both empty to use a pre-combined /imu0 topic instead.           -->
+    <arg name="topic_gyro"
+         default="/device_0/sensor_2/Gyro_0/imu/data"/>
+    <arg name="topic_accel"
+         default="/device_0/sensor_2/Accel_0/imu/data"/>
+    <arg name="topic_imu"
+         default="/imu0"/>
+    <arg name="topic_camera0"
+         default="$(eval '/device_0/sensor_0/Infrared_1/image/data' if arg('camera') == 'ir' else '/device_0/sensor_1/Color_0/image/data')"/>
+
+    <!-- rviz visualization -->
+    <arg name="dorviz"     default="true"/>
+    <arg name="rviz_cfg"   default="$(find ov_srvins)/launch/display.rviz"/>
+
+    <!-- saving trajectory -->
+    <arg name="dosave"     default="false"/>
+    <arg name="path_est"   default="/tmp/traj_estimate.txt"/>
+
+    <!-- saving body-frame velocity output -->
+    <arg name="dosave_vel"    default="false"/>
+    <arg name="path_body_vel" default="/tmp/body_velocity.txt"/>
+
+    <!-- timing statistics -->
+    <arg name="dotime"     default="false"/>
+    <arg name="path_time"  default="/tmp/traj_timing.txt"/>
+
+    <!-- ============================================================
+         sqrtVINS serial estimator
+         Reads the bag directly; no separate rosbag play node required.
+         ============================================================ -->
+    <node name="ov_srvins" pkg="ov_srvins" type="ros1_serial_msckf"
+          output="screen" clear_params="true" required="true">
+
+        <param name="verbosity"   type="string" value="$(arg verbosity)"/>
+        <param name="config_path" type="string"
+               value="$(find ov_srvins)/../config/rs_d435i/estimator_config.yaml"
+               if="$(eval arg('camera') == 'ir')"/>
+        <param name="config_path" type="string"
+               value="$(find ov_srvins)/../config/rs_d435i_rgb/estimator_config.yaml"
+               unless="$(eval arg('camera') == 'ir')"/>
+
+        <param name="use_stereo"  type="bool"   value="false"/>
+        <param name="max_cameras" type="int"    value="1"/>
+
+        <!-- Bag parameters passed directly to the serial node -->
+        <param name="path_bag"  type="string" value="$(arg bag)"/>
+        <param name="bag_start" type="double" value="$(arg bag_start)"/>
+        <param name="bag_durr"  type="double" value="$(arg bag_durr)"/>
+
+        <!-- Topic names to look for inside the bag -->
+        <!-- topic_gyro/topic_accel/topic_imu are read directly by the serial node -->
+        <!-- cam0_rostopic is the name parse_external looks for in ROS params     -->
+        <param name="topic_gyro"    type="string" value="$(arg topic_gyro)"/>
+        <param name="topic_accel"   type="string" value="$(arg topic_accel)"/>
+        <param name="topic_imu"     type="string" value="$(arg topic_imu)"/>
+        <param name="cam0_rostopic" type="string" value="$(arg topic_camera0)"/>
+
+        <param name="record_timing_information" type="bool"   value="$(arg dotime)"/>
+        <param name="record_timing_filepath"    type="string" value="$(arg path_time)"/>
+
+        <param name="save_body_velocity"  type="bool"   value="$(arg dosave_vel)"/>
+        <param name="filepath_body_vel"   type="string" value="$(arg path_body_vel)"/>
+
+    </node>
+
+    <!-- ============================================================
+         Save trajectory if requested
+         ============================================================ -->
+    <group if="$(arg dosave)">
+        <node name="recorder_estimate" pkg="ov_eval" type="pose_to_file"
+              output="screen" required="true">
+            <param name="topic"      type="str" value="/ov_srvins/poseimu"/>
+            <param name="topic_type" type="str" value="PoseWithCovarianceStamped"/>
+            <param name="output"     type="str" value="$(arg path_est)"/>
+        </node>
+    </group>
+
+    <!-- ============================================================
+         RViz (optional)
+         ============================================================ -->
+    <group if="$(arg dorviz)">
+        <node name="rviz" pkg="rviz" type="rviz" output="log"
+              args="-d $(arg rviz_cfg)"/>
+    </group>
+
+</launch>

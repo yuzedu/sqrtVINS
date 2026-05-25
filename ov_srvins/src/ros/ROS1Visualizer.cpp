@@ -716,6 +716,37 @@ void ROS1Visualizer::publish_state() {
     of_body_vel << " " << C_vv_body(1,1) << " " << C_vv_body(1,2);
     of_body_vel << " " << C_vv_body(2,2);
     of_body_vel << "\n";
+
+    // Sliding-window VIO health monitor
+    if (!health_monitor_done_) {
+      // Arm only after the estimator first demonstrates healthy tracking:
+      // requires sufficient total features AND at least 3 active SLAM landmarks
+      // (SLAM points only appear after proper map initialization).
+      if (!health_monitor_armed_ &&
+          (num_msckf + num_slam) >= HEALTH_FEAT_THRESHOLD &&
+          num_slam > 2)
+        health_monitor_armed_ = true;
+
+      if (health_monitor_armed_) {
+        bool unhealthy = (C_vv_body(0, 0) > HEALTH_COV_THRESHOLD) ||
+                         (num_msckf + num_slam < HEALTH_FEAT_THRESHOLD);
+        health_window_.push_back(unhealthy);
+        if ((int)health_window_.size() > HEALTH_WINDOW_SIZE)
+          health_window_.pop_front();
+
+        if ((int)health_window_.size() == HEALTH_WINDOW_SIZE) {
+          int fail_count = (int)std::count(health_window_.begin(),
+                                           health_window_.end(), true);
+          if (fail_count >= HEALTH_FAIL_COUNT) {
+            of_body_vel << "FAIL\n";
+            of_body_vel.flush();
+            health_monitor_done_ = true;
+            PRINT_INFO(RED "[HEALTH] VIO health monitor: FAIL (%d/%d frames unhealthy)\n" RESET,
+                       fail_count, HEALTH_WINDOW_SIZE);
+          }
+        }
+      }
+    }
   }
 }
 
