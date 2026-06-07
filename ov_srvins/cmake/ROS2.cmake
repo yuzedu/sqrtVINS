@@ -8,6 +8,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(unitree_hg REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(image_transport REQUIRED)
@@ -45,6 +46,7 @@ list(APPEND ament_libraries
         std_msgs
         geometry_msgs
         sensor_msgs
+        unitree_hg
         nav_msgs
         cv_bridge
         image_transport

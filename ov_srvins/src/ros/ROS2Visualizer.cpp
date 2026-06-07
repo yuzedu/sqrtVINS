@@ -184,14 +184,27 @@ void ROS2Visualizer::setup_subscribers(
 
   // Create imu subscriber (handle legacy ros param info)
   std::string topic_imu;
-  _node->declare_parameter<std::string>("topic_imu", "/imu0");
+  bool use_unitree_imu = false;
+  if (!_node->has_parameter("topic_imu"))
+    _node->declare_parameter<std::string>("topic_imu", "/imu0");
+  if (!_node->has_parameter("use_unitree_imu"))
+    _node->declare_parameter<bool>("use_unitree_imu", false);
   _node->get_parameter("topic_imu", topic_imu);
+  _node->get_parameter("use_unitree_imu", use_unitree_imu);
   parser->parse_external("relative_config_imu", "imu0", "rostopic", topic_imu);
-  sub_imu = _node->create_subscription<sensor_msgs::msg::Imu>(
-      topic_imu, rclcpp::SensorDataQoS(),
-      std::bind(&ROS2Visualizer::callback_inertial, this,
-                std::placeholders::_1));
-  PRINT_INFO("subscribing to IMU: %s\n", topic_imu.c_str());
+  if (use_unitree_imu) {
+    sub_imu_unitree = _node->create_subscription<unitree_hg::msg::IMUState>(
+        topic_imu, rclcpp::SensorDataQoS(),
+        std::bind(&ROS2Visualizer::callback_inertial_unitree, this,
+                  std::placeholders::_1));
+    PRINT_INFO("subscribing to Unitree IMU: %s\n", topic_imu.c_str());
+  } else {
+    sub_imu = _node->create_subscription<sensor_msgs::msg::Imu>(
+        topic_imu, rclcpp::SensorDataQoS(),
+        std::bind(&ROS2Visualizer::callback_inertial, this,
+                  std::placeholders::_1));
+    PRINT_INFO("subscribing to IMU: %s\n", topic_imu.c_str());
+  }
 
   // Logic for sync stereo subscriber
   // https://answers.ros.org/question/96346/subscribe-to-two-image_raws-with-one-function/?answer=96491#post-id-96491
@@ -331,7 +344,7 @@ void ROS2Visualizer::visualize_odometry(double timestamp) {
     nav_msgs::msg::Odometry odomIinM;
     odomIinM.header.stamp =
         ROSVisualizerHelper::get_time_from_seconds(timestamp);
-    odomIinM.header.frame_id = "global";
+    odomIinM.header.frame_id = "map";
 
     // The POSE component (orientation and position)
     odomIinM.pose.pose.orientation.x = state_plus(0);
@@ -385,7 +398,7 @@ void ROS2Visualizer::visualize_odometry(double timestamp) {
       ROSVisualizerHelper::get_stamped_transform_from_pose(_node, odom_pose,
                                                            false);
   trans.header.stamp = _node->now();
-  trans.header.frame_id = "global";
+  trans.header.frame_id = "map";
   trans.child_frame_id = "imu";
   if (publish_global2imu_tf) {
     mTfBr->sendTransform(trans);
@@ -543,6 +556,66 @@ void ROS2Visualizer::callback_inertial(
   }
 }
 
+void ROS2Visualizer::callback_inertial_unitree(
+    const unitree_hg::msg::IMUState::SharedPtr msg) {
+
+  // Wait until the camera has given us a bag-to-wall-clock reference
+  {
+    std::lock_guard<std::mutex> lck(bag_offset_mtx);
+    if (!bag_offset_ready) return;
+  }
+
+  ov_core::ImuData message;
+  {
+    std::lock_guard<std::mutex> lck(bag_offset_mtx);
+    message.timestamp = _node->get_clock()->now().seconds() + bag_wall_offset;
+  }
+  message.wm << msg->gyroscope[0], msg->gyroscope[1], msg->gyroscope[2];
+  message.am << msg->accelerometer[0], msg->accelerometer[1], msg->accelerometer[2];
+
+  _app->feed_measurement_imu(message);
+  visualize_odometry(message.timestamp);
+
+  if (thread_update_running)
+    return;
+  thread_update_running = true;
+  std::thread thread([&] {
+    std::lock_guard<std::mutex> lck(camera_queue_mtx);
+    std::map<int, bool> unique_cam_ids;
+    for (const auto &cam_msg : camera_queue) {
+      unique_cam_ids[cam_msg.sensor_ids.at(0)] = true;
+    }
+    auto params = _app->get_params();
+    size_t num_unique_cameras = (params.state_options.num_cameras == 2)
+                                    ? 1
+                                    : params.state_options.num_cameras;
+    if (unique_cam_ids.size() == num_unique_cameras) {
+      double timestamp_imu_inC =
+          message.timestamp - _app->get_state()->calib_dt_CAMtoIMU->value()(0);
+      while (!camera_queue.empty() &&
+             camera_queue.at(0).timestamp < timestamp_imu_inC) {
+        auto rT0_1 = boost::posix_time::microsec_clock::local_time();
+        double update_dt =
+            100.0 * (timestamp_imu_inC - camera_queue.at(0).timestamp);
+        _app->feed_measurement_camera(camera_queue.at(0));
+        visualize();
+        camera_queue.pop_front();
+        auto rT0_2 = boost::posix_time::microsec_clock::local_time();
+        double time_total = (rT0_2 - rT0_1).total_microseconds() * 1e-6;
+        PRINT_INFO(
+            BLUE "[TIME]: %.4f seconds total (%.1f hz, %.2f ms behind)\n" RESET,
+            time_total, 1.0 / time_total, update_dt);
+      }
+    }
+    thread_update_running = false;
+  });
+  if (!_app->get_params().use_multi_threading_subs) {
+    thread.join();
+  } else {
+    thread.detach();
+  }
+}
+
 void ROS2Visualizer::callback_monocular(
     const sensor_msgs::msg::Image::SharedPtr msg0, int cam_id0) {
 
@@ -554,6 +627,13 @@ void ROS2Visualizer::callback_monocular(
     return;
   }
   camera_last_timestamp[cam_id0] = timestamp;
+
+  // Keep bag-to-wall-clock offset fresh so unitree IMU callback can use it
+  {
+    std::lock_guard<std::mutex> lck(bag_offset_mtx);
+    bag_wall_offset = timestamp - _node->get_clock()->now().seconds();
+    bag_offset_ready = true;
+  }
 
   // Get the image
   cv_bridge::CvImageConstPtr cv_ptr;
@@ -661,7 +741,7 @@ void ROS2Visualizer::publish_state() {
   geometry_msgs::msg::PoseWithCovarianceStamped poseIinM;
   poseIinM.header.stamp =
       ROSVisualizerHelper::get_time_from_seconds(timestamp_inI);
-  poseIinM.header.frame_id = "global";
+  poseIinM.header.frame_id = "map";
   poseIinM.pose.pose.orientation.x = state->imu->quat()(0);
   poseIinM.pose.pose.orientation.y = state->imu->quat()(1);
   poseIinM.pose.pose.orientation.z = state->imu->quat()(2);
@@ -698,7 +778,7 @@ void ROS2Visualizer::publish_state() {
   // NOTE: https://github.com/ros-visualization/rviz/issues/1107
   nav_msgs::msg::Path arrIMU;
   arrIMU.header.stamp = _node->now();
-  arrIMU.header.frame_id = "global";
+  arrIMU.header.frame_id = "map";
   for (size_t i = 0; i < poses_imu.size();
        i += std::floor((float)poses_imu.size() / 16384.0) + 1) {
     arrIMU.poses.push_back(poses_imu.at(i));
@@ -808,7 +888,7 @@ void ROS2Visualizer::publish_groundtruth() {
   geometry_msgs::msg::PoseStamped poseIinM;
   poseIinM.header.stamp =
       ROSVisualizerHelper::get_time_from_seconds(timestamp_inI);
-  poseIinM.header.frame_id = "global";
+  poseIinM.header.frame_id = "map";
   poseIinM.pose.orientation.x = state_gt(1, 0);
   poseIinM.pose.orientation.y = state_gt(2, 0);
   poseIinM.pose.orientation.z = state_gt(3, 0);
@@ -826,7 +906,7 @@ void ROS2Visualizer::publish_groundtruth() {
   // NOTE: https://github.com/ros-visualization/rviz/issues/1107
   nav_msgs::msg::Path arrIMU;
   arrIMU.header.stamp = _node->now();
-  arrIMU.header.frame_id = "global";
+  arrIMU.header.frame_id = "map";
   for (size_t i = 0; i < poses_gt.size();
        i += std::floor((float)poses_gt.size() / 16384.0) + 1) {
     arrIMU.poses.push_back(poses_gt.at(i));
@@ -836,7 +916,7 @@ void ROS2Visualizer::publish_groundtruth() {
   // Publish our transform on TF
   geometry_msgs::msg::TransformStamped trans;
   trans.header.stamp = _node->now();
-  trans.header.frame_id = "global";
+  trans.header.frame_id = "map";
   trans.child_frame_id = "truth";
   trans.transform.rotation.x = state_gt(1, 0);
   trans.transform.rotation.y = state_gt(2, 0);

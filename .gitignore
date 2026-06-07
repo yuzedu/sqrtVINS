@@ -9,3 +9,5 @@ doxgen_generated
 doc
 .vscode
 __pycache__
+rosbag2
+unitree_zed

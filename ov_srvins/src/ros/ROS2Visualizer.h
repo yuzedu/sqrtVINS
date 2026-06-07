@@ -43,6 +43,7 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <unitree_hg/msg/imu_state.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <sensor_msgs/msg/point_cloud.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -123,6 +124,7 @@ public:
 
   /// Callback for inertial information
   void callback_inertial(const sensor_msgs::msg::Imu::SharedPtr msg);
+  void callback_inertial_unitree(const unitree_hg::msg::IMUState::SharedPtr msg);
 
   /// Callback for monocular cameras information
   void callback_monocular(const sensor_msgs::msg::Image::SharedPtr msg0,
@@ -173,6 +175,7 @@ protected:
 
   // Our subscribers and camera synchronizers
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
+  rclcpp::Subscription<unitree_hg::msg::IMUState>::SharedPtr sub_imu_unitree;
   std::vector<rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr>
       subs_cam;
   typedef message_filters::sync_policies::ApproximateTime<
@@ -183,6 +186,11 @@ protected:
   std::vector<
       std::shared_ptr<message_filters::Subscriber<sensor_msgs::msg::Image>>>
       sync_subs_cam;
+
+  // Bag-to-wall-clock offset for unitree IMU (which has no header timestamp)
+  std::mutex bag_offset_mtx;
+  double bag_wall_offset = 0.0;   // bag_time - wall_clock_time, updated from camera headers
+  bool bag_offset_ready = false;
 
   // For path viz
   std::vector<geometry_msgs::msg::PoseStamped> poses_imu;
