@@ -13,8 +13,7 @@ ros2 launch ov_srvins subscribe_zed_imu.launch.py rviz_enable:=true
 
 **Terminal 2 — play bag (inside Docker):**
 ```bash
-ros2 bag play /sqrt_ros2_ws/src/sqrtVINS/rosbag2/rosbag2_2026_06_03-10_39_19 \
-  --topics /h_camera/zed_node/rgb/image_rect_color /h_camera/zed_node/imu/data
+ros2 bag play rosbag2_2026_06_10-11_51_47/rosbag2_2026_06_10-11_51_47
 ```
 
 ## Config files
