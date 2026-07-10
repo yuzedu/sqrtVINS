@@ -76,6 +76,12 @@ public:
    */
   void clean_old_imu_measurements(double oldest_time);
 
+private:
+  /// Same as clean_old_imu_measurements but caller must hold imu_data_mtx_
+  void clean_old_imu_measurements_nolock(double oldest_time);
+
+public:
+
   /**
    * @brief Propagate state up to given timestamp and then clone
    *

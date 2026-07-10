@@ -56,10 +56,15 @@ void Propagator::feed_imu(const ov_core::ImuData &message, double oldest_time) {
   imu_data_.emplace_back(message);
 
   // Clean old measurements
-  clean_old_imu_measurements(oldest_time);
+  clean_old_imu_measurements_nolock(oldest_time);
 }
 
 void Propagator::clean_old_imu_measurements(double oldest_time) {
+  std::lock_guard<std::mutex> lck(imu_data_mtx_);
+  clean_old_imu_measurements_nolock(oldest_time);
+}
+
+void Propagator::clean_old_imu_measurements_nolock(double oldest_time) {
   if (oldest_time < 0)
     return;
   auto it0 = imu_data_.begin();

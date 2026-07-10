@@ -31,6 +31,7 @@
 #define OV_SRVINS_UPDATER_ZEROVELOCITY_H
 
 #include <memory>
+#include <mutex>
 
 #include "UpdaterOptions.h"
 #include "feat/FeatureDatabase.h"
@@ -89,8 +90,12 @@ public:
   void feed_imu(const ov_core::ImuData &message, double oldest_time = -1) {
 
     // Append it to our vector
+    // NOTE: imu_data_ is also read by try_update() which can run on a
+    // different thread (e.g. the camera thread in run_zed_msckf), so it must
+    // be locked just like Propagator::feed_imu does.
+    std::lock_guard<std::mutex> lck(imu_data_mtx_);
     imu_data_.emplace_back(message);
-    clean_old_imu_measurements(oldest_time - 0.10);
+    clean_old_imu_measurements_nolock(oldest_time - 0.10);
   }
 
   /**
@@ -100,16 +105,8 @@ public:
    * clock)
    */
   void clean_old_imu_measurements(double oldest_time) {
-    if (oldest_time < 0)
-      return;
-    auto it0 = imu_data_.begin();
-    while (it0 != imu_data_.end()) {
-      if (it0->timestamp < oldest_time) {
-        it0 = imu_data_.erase(it0);
-      } else {
-        it0++;
-      }
-    }
+    std::lock_guard<std::mutex> lck(imu_data_mtx_);
+    clean_old_imu_measurements_nolock(oldest_time);
   }
 
   /**
@@ -122,6 +119,20 @@ public:
   bool try_update(std::shared_ptr<State> state, double timestamp);
 
 protected:
+  /// Removes old IMU measurements; caller must hold imu_data_mtx_
+  void clean_old_imu_measurements_nolock(double oldest_time) {
+    if (oldest_time < 0)
+      return;
+    auto it0 = imu_data_.begin();
+    while (it0 != imu_data_.end()) {
+      if (it0->timestamp < oldest_time) {
+        it0 = imu_data_.erase(it0);
+      } else {
+        it0++;
+      }
+    }
+  }
+
   /// Options used during update (chi2 multiplier)
   UpdaterOptions options_;
 
@@ -151,6 +162,9 @@ protected:
 
   /// Our history of IMU messages (time, angular, linear)
   std::vector<ov_core::ImuData> imu_data_;
+
+  /// Protects imu_data_ (fed from the IMU thread, consumed in try_update)
+  std::mutex imu_data_mtx_;
 
   /// Estimate for time offset at last propagation time
   double last_prop_time_offset_ = 0.0;

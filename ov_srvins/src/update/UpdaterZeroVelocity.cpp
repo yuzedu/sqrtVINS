@@ -44,6 +44,7 @@
 
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/math/distributions/chi_squared.hpp>
+#include <cmath>
 
 using namespace ov_core;
 using namespace ov_type;
@@ -81,9 +82,12 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state,
                                      double timestamp) {
 
   // Return if we don't have any imu data yet
-  if (imu_data_.empty()) {
-    last_zupt_state_timestamp_ = 0.0;
-    return false;
+  {
+    std::lock_guard<std::mutex> lck(imu_data_mtx_);
+    if (imu_data_.empty()) {
+      last_zupt_state_timestamp_ = 0.0;
+      return false;
+    }
   }
 
   // Return if the state is already at the desired time
@@ -110,8 +114,13 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state,
   double time1 = timestamp + t_off_new;
 
   // Select bounding inertial measurements
-  std::vector<ov_core::ImuData> imu_recent =
-      select_imu_readings(imu_data_, time0, time1);
+  // NOTE: must hold the lock since feed_imu can append/erase concurrently
+  // from the IMU thread (run_zed_msckf feeds IMU on its own thread)
+  std::vector<ov_core::ImuData> imu_recent;
+  {
+    std::lock_guard<std::mutex> lck(imu_data_mtx_);
+    imu_recent = select_imu_readings(imu_data_, time0, time1);
+  }
 
   // Move forward in time
   last_prop_time_offset_ = t_off_new;
@@ -227,6 +236,16 @@ bool UpdaterZeroVelocity::try_update(std::shared_ptr<State> state,
   MatX S = HUT * HUT.transpose();
   S.diagonal() += zupt_noise_multiplier_ * VecX::Ones(S.rows());
   DataType chi2 = res.dot(S.llt().solve(res));
+
+  // A non-finite chi2 means the linear system is corrupted (NaN would compare
+  // false against the threshold below and the disparity check would still
+  // accept it, poisoning the state) -- never apply such an update
+  if (!std::isfinite(chi2)) {
+    last_zupt_state_timestamp_ = 0.0;
+    last_zupt_count_ = 0;
+    PRINT_WARNING(RED "[ZUPT]: rejected non-finite chi2!\n" RESET);
+    return false;
+  }
 
   // Get our threshold (we precompute up to 1000 but handle the case that it is
   // more)

@@ -15,6 +15,7 @@
  *   timestamp tx ty tz qx qy qz qw   (JPL quaternion, as stored by OpenVINS)
  */
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <deque>
 #include <fstream>
@@ -22,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 #include <opencv2/opencv.hpp>
 #include <sl/Camera.hpp>
@@ -70,7 +72,23 @@ int main(int argc, char **argv) {
   align.header.frame_id = "odom";
   align.child_frame_id = "vins_world";
   align.transform.rotation.w = 1.0;
-  static_br.sendTransform(align);
+
+  // Pin the Livox onto the VINS body frame with the iKalibr extrinsics
+  // (ikalibr_v1.txt SO3_LkToBr / POS_LkInBr, Br = ZED IMU), so /livox/lidar
+  // clouds render aligned with the VINS estimate in RViz.
+  geometry_msgs::msg::TransformStamped lidar_tf;
+  lidar_tf.header.stamp = align.header.stamp;
+  lidar_tf.header.frame_id = "zed_imu";
+  lidar_tf.child_frame_id = "livox_frame";
+  lidar_tf.transform.translation.x = 0.02002398766856736;
+  lidar_tf.transform.translation.y = -0.08293179929464828;
+  lidar_tf.transform.translation.z = -0.2218120632216262;
+  lidar_tf.transform.rotation.x = 0.003075542074434731;
+  lidar_tf.transform.rotation.y = -0.004103023823740495;
+  lidar_tf.transform.rotation.z = -0.009759756912395862;
+  lidar_tf.transform.rotation.w = 0.9999392248439211;
+  static_br.sendTransform(
+      std::vector<geometry_msgs::msg::TransformStamped>{align, lidar_tf});
 #endif
 
   // Installed after rclcpp::init so these replace rclcpp's SIGINT handler
@@ -124,6 +142,20 @@ int main(int argc, char **argv) {
   std::deque<ov_core::CameraData> camera_queue;
   std::mutex queue_mtx;
   std::atomic<double> latest_imu_t{-1.0};
+
+#if ROS_AVAILABLE == 2
+  // Snapshot handed from the camera thread to the viz thread. Publishing
+  // (path/cloud serialization) is synchronous in Foxy and stalls the camera
+  // loop once RViz is connected -- worst at startup when initialization must
+  // keep up with the image queue -- so the camera thread only records state
+  // here and a low-rate thread does the actual publishing.
+  std::mutex viz_mtx;
+  bool viz_fresh = false;
+  double viz_p[3] = {0, 0, 0};
+  double viz_q[4] = {0, 0, 0, 1};
+  std::vector<geometry_msgs::msg::PoseStamped> viz_pending;
+  std::vector<Vec3> viz_msckf, viz_slam;
+#endif
 
   // ---- IMU thread: tight poll, dedup, feed (never blocked by updates) ----
   std::thread imu_thread([&]() {
@@ -228,27 +260,11 @@ int main(int argc, char **argv) {
                  << (double)f(2) << "\n";
 
 #if ROS_AVAILABLE == 2
-          // Stamp with wall clock (st->timestamp is ZED-relative seconds and
-          // would be rejected as stale by tf2/RViz).
-          auto now = node->now();
-
-          // JPL q_GtoI components read as Hamilton give R_ItoG, which is
-          // exactly what TF expects -- copy through unswapped.
-          geometry_msgs::msg::TransformStamped tf;
-          tf.header.stamp = now;
-          tf.header.frame_id = "vins_world";
-          tf.child_frame_id = "zed_imu";
-          tf.transform.translation.x = (double)p(0);
-          tf.transform.translation.y = (double)p(1);
-          tf.transform.translation.z = (double)p(2);
-          tf.transform.rotation.x = (double)q(0);
-          tf.transform.rotation.y = (double)q(1);
-          tf.transform.rotation.z = (double)q(2);
-          tf.transform.rotation.w = (double)q(3);
-          tf_br.sendTransform(tf);
-
+          // Hand off to the viz thread (see viz_mtx comment above): build
+          // only the single new path pose here, everything else is a cheap
+          // copy/move under the lock.
           geometry_msgs::msg::PoseStamped ps;
-          ps.header.stamp = now;
+          ps.header.stamp = node->now();
           ps.header.frame_id = "vins_world";
           ps.pose.position.x = (double)p(0);
           ps.pose.position.y = (double)p(1);
@@ -257,42 +273,105 @@ int main(int argc, char **argv) {
           ps.pose.orientation.y = (double)q(1);
           ps.pose.orientation.z = (double)q(2);
           ps.pose.orientation.w = (double)q(3);
-          path_msg.header.stamp = now;
-          path_msg.poses.push_back(ps);
-          if (path_msg.poses.size() > 5000)
-            path_msg.poses.erase(path_msg.poses.begin());
-          path_pub->publish(path_msg);
-
-          sensor_msgs::msg::PointCloud2 cloud;
-          cloud.header.stamp = now;
-          cloud.header.frame_id = "vins_world";
-          sensor_msgs::PointCloud2Modifier mod(cloud);
-          mod.setPointCloud2FieldsByString(1, "xyz");
-          mod.resize(feats_msckf.size() + feats_slam.size());
-          sensor_msgs::PointCloud2Iterator<float> it_x(cloud, "x");
-          sensor_msgs::PointCloud2Iterator<float> it_y(cloud, "y");
-          sensor_msgs::PointCloud2Iterator<float> it_z(cloud, "z");
-          for (const auto &f : feats_msckf) {
-            *it_x = (float)f(0);
-            *it_y = (float)f(1);
-            *it_z = (float)f(2);
-            ++it_x, ++it_y, ++it_z;
+          {
+            std::lock_guard<std::mutex> vlck(viz_mtx);
+            viz_pending.push_back(std::move(ps));
+            for (int k = 0; k < 3; k++)
+              viz_p[k] = (double)p(k);
+            for (int k = 0; k < 4; k++)
+              viz_q[k] = (double)q(k);
+            viz_msckf = std::move(feats_msckf);
+            viz_slam = std::move(feats_slam);
+            viz_fresh = true;
           }
-          for (const auto &f : feats_slam) {
-            *it_x = (float)f(0);
-            *it_y = (float)f(1);
-            *it_z = (float)f(2);
-            ++it_x, ++it_y, ++it_z;
-          }
-          cloud_pub->publish(cloud);
 #endif
         }
       }
     }
   });
 
+#if ROS_AVAILABLE == 2
+  // ---- Viz thread: publishes TF / path / cloud at ~10 Hz off the hot path.
+  std::thread viz_thread([&]() {
+    while (!g_stop) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+      double p[3], q[4];
+      std::vector<Vec3> fm, fs;
+      {
+        std::lock_guard<std::mutex> vlck(viz_mtx);
+        if (!viz_fresh)
+          continue;
+        viz_fresh = false;
+        for (int k = 0; k < 3; k++)
+          p[k] = viz_p[k];
+        for (int k = 0; k < 4; k++)
+          q[k] = viz_q[k];
+        fm = std::move(viz_msckf);
+        fs = std::move(viz_slam);
+        viz_msckf.clear();
+        viz_slam.clear();
+        for (auto &ps : viz_pending)
+          path_msg.poses.push_back(std::move(ps));
+        viz_pending.clear();
+      }
+      if (path_msg.poses.size() > 5000)
+        path_msg.poses.erase(path_msg.poses.begin(),
+                             path_msg.poses.end() - 5000);
+
+      // Stamp with wall clock (the state time is ZED-relative seconds and
+      // would be rejected as stale by tf2/RViz).
+      auto now = node->now();
+
+      // JPL q_GtoI components read as Hamilton give R_ItoG, which is
+      // exactly what TF expects -- copy through unswapped.
+      geometry_msgs::msg::TransformStamped tf;
+      tf.header.stamp = now;
+      tf.header.frame_id = "vins_world";
+      tf.child_frame_id = "zed_imu";
+      tf.transform.translation.x = p[0];
+      tf.transform.translation.y = p[1];
+      tf.transform.translation.z = p[2];
+      tf.transform.rotation.x = q[0];
+      tf.transform.rotation.y = q[1];
+      tf.transform.rotation.z = q[2];
+      tf.transform.rotation.w = q[3];
+      tf_br.sendTransform(tf);
+
+      path_msg.header.stamp = now;
+      path_pub->publish(path_msg);
+
+      sensor_msgs::msg::PointCloud2 cloud;
+      cloud.header.stamp = now;
+      cloud.header.frame_id = "vins_world";
+      sensor_msgs::PointCloud2Modifier mod(cloud);
+      mod.setPointCloud2FieldsByString(1, "xyz");
+      mod.resize(fm.size() + fs.size());
+      sensor_msgs::PointCloud2Iterator<float> it_x(cloud, "x");
+      sensor_msgs::PointCloud2Iterator<float> it_y(cloud, "y");
+      sensor_msgs::PointCloud2Iterator<float> it_z(cloud, "z");
+      for (const auto &f : fm) {
+        *it_x = (float)f(0);
+        *it_y = (float)f(1);
+        *it_z = (float)f(2);
+        ++it_x, ++it_y, ++it_z;
+      }
+      for (const auto &f : fs) {
+        *it_x = (float)f(0);
+        *it_y = (float)f(1);
+        *it_z = (float)f(2);
+        ++it_x, ++it_y, ++it_z;
+      }
+      cloud_pub->publish(cloud);
+    }
+  });
+#endif
+
   imu_thread.join();
   cam_thread.join();
+#if ROS_AVAILABLE == 2
+  viz_thread.join();
+#endif
   zed.close();
   traj.close();
   std::cout << "[zed] stopped. trajectory -> " << traj_path << std::endl;
