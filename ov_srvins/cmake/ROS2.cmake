@@ -110,6 +110,21 @@ ament_target_dependencies(run_subscribe_msckf ${ament_libraries})
 target_link_libraries(run_subscribe_msckf ov_srvins_lib ${thirdparty_libraries})
 install(TARGETS run_subscribe_msckf DESTINATION lib/${PROJECT_NAME})
 
+# Live ZED runner: publishes TF/path/features on ROS2 while writing the TUM
+# trajectory file. Only built when the ZED SDK + CUDA are present.
+find_package(ZED QUIET)
+find_package(CUDA QUIET)
+if (ZED_FOUND AND CUDA_FOUND)
+    message(STATUS "ZED SDK + CUDA found: building run_zed_msckf (with ROS2 publishing)")
+    add_executable(run_zed_msckf src/run_zed_msckf.cpp)
+    target_include_directories(run_zed_msckf PRIVATE ${ZED_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS})
+    ament_target_dependencies(run_zed_msckf ${ament_libraries})
+    target_link_libraries(run_zed_msckf ov_srvins_lib ${thirdparty_libraries} ${ZED_LIBRARIES} ${CUDA_LIBRARIES})
+    install(TARGETS run_zed_msckf DESTINATION lib/${PROJECT_NAME})
+else ()
+    message(WARNING "ZED SDK or CUDA not found, skipping run_zed_msckf")
+endif ()
+
 add_executable(run_simulation src/run_simulation.cpp)
 ament_target_dependencies(run_simulation ${ament_libraries})
 target_link_libraries(run_simulation ov_srvins_lib ${thirdparty_libraries})

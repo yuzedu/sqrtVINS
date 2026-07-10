@@ -1,0 +1,140 @@
+CalibParam:
+  Header:
+    Software: iKalibr
+    Version: 2.0.0
+    Address: https://github.com/Unsigned-Long/iKalibr.git
+  EXTRI:
+    SO3_BiToBr:
+      - key: /h_camera/zed_node/imu/data
+        value:
+          qx: 0
+          qy: 0
+          qz: 0
+          qw: 1
+    POS_BiInBr:
+      - key: /h_camera/zed_node/imu/data
+        value:
+          r0c0: 0
+          r1c0: 0
+          r2c0: 0
+    SO3_RjToBr:
+      []
+    POS_RjInBr:
+      []
+    SO3_LkToBr:
+      - key: /livox/lidar
+        value:
+          qx: 0.003075542074434731
+          qy: -0.004103023823740495
+          qz: -0.009759756912395862
+          qw: 0.9999392248439211
+    POS_LkInBr:
+      - key: /livox/lidar
+        value:
+          r0c0: 0.02002398766856736
+          r1c0: -0.08293179929464828
+          r2c0: -0.2218120632216262
+    SO3_CmToBr:
+      - key: /h_camera/zed_node/rgb/image_rect_color
+        value:
+          qx: -0.495038390375125
+          qy: 0.4968985781465857
+          qz: -0.505177460528194
+          qw: 0.5028165952561552
+    POS_CmInBr:
+      - key: /h_camera/zed_node/rgb/image_rect_color
+        value:
+          r0c0: 0.08456978483027267
+          r1c0: 0.005020237116200121
+          r2c0: -0.003409867786183646
+    SO3_DnToBr:
+      []
+    POS_DnInBr:
+      []
+    SO3_EsToBr:
+      []
+    POS_EsInBr:
+      []
+  TEMPORAL:
+    TO_BiToBr:
+      - key: /h_camera/zed_node/imu/data
+        value: 0
+    TO_RjToBr:
+      []
+    TO_LkToBr:
+      - key: /livox/lidar
+        value: 0.009517172890273418
+    TO_CmToBr:
+      - key: /h_camera/zed_node/rgb/image_rect_color
+        value: 0.01058456016416192
+    TO_DnToBr:
+      []
+    TO_EsToBr:
+      []
+    RS_READOUT:
+      - key: /h_camera/zed_node/rgb/image_rect_color
+        value: 0
+  INTRI:
+    IMU:
+      - key: /h_camera/zed_node/imu/data
+        value:
+          ptr_wrapper:
+            id: 2147483649
+            data:
+              ACCE:
+                BIAS:
+                  r0c0: 0.1748880728115447
+                  r1c0: 0.002597735502405739
+                  r2c0: -0.01391542422165239
+                MAP_COEFF:
+                  r0c0: 1
+                  r1c0: 1
+                  r2c0: 1
+                  r3c0: 0
+                  r4c0: 0
+                  r5c0: 0
+              GYRO:
+                BIAS:
+                  r0c0: -0.001360423603860461
+                  r1c0: -0.003558594017238588
+                  r2c0: -0.00802017306863359
+                MAP_COEFF:
+                  r0c0: 1
+                  r1c0: 1
+                  r2c0: 1
+                  r3c0: 0
+                  r4c0: 0
+                  r5c0: 0
+              SO3_AtoG:
+                qx: 0
+                qy: 0
+                qz: 0
+                qw: 1
+    Camera:
+      - key: /h_camera/zed_node/rgb/image_rect_color
+        value:
+          polymorphic_id: 2147483649
+          polymorphic_name: pinhole_brown_t2
+          ptr_wrapper:
+            id: 2147483650
+            data:
+              img_width: 1280
+              img_height: 720
+              focal_length:
+                - 533.6857249915836
+                - 514.6219808761904
+              principal_point:
+                - 636.9070495216963
+                - 353.4752153355167
+              disto_param:
+                - 0
+                - 0
+                - 0
+                - 0
+                - 0
+    RGBD:
+      []
+  GRAVITY:
+    r0c0: -2.340619695674964e-15
+    r1c0: -2.626691521082948e-17
+    r2c0: -9.799999999999997

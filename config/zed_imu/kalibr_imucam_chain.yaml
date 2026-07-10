@@ -1,16 +1,17 @@
 %YAML:1.0
 
 cam0:
+  # From iKalibr v1 (ikalibr_v1.txt): inverse of SO3_CmToBr/POS_CmInBr (Br = ZED IMU)
   T_cam_imu:
-   - [ 0.034308, -0.999388,  0.006825,  0.049858]
-   - [ 0.003684, -0.006703, -0.999971,  0.009000]
-   - [ 0.999405,  0.034332,  0.003451, -0.016137]
+   - [-0.004225, -0.999991,  0.000467,  0.005379]
+   - [ 0.016055, -0.000535, -0.999871, -0.004765]
+   - [ 0.999862, -0.004217,  0.016058, -0.084482]
    - [ 0.0,       0.0,       0.0,       1.0     ]
   cam_overlaps: []
   camera_model: pinhole
   distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
   distortion_model: radtan
-  intrinsics: [534.1971329117293, 531.5978563518483, 640.7936411059065, 357.1465537986581]
-  resolution: [1280, 720]
+  intrinsics: [266,266, 339, 190]
+  resolution: [672, 376]
   rostopic: /h_camera/zed_node/rgb/image_rect_color
-  timeshift_cam_imu: 0.01509966631714341
+  timeshift_cam_imu: 0.01058456016416192  # iKalibr v1 TO_CmToBr (t_imu = t_cam + shift)

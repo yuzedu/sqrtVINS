@@ -11,3 +11,4 @@ doc
 __pycache__
 rosbag2
 unitree_zed
+ov_srvins/build_standalone/

@@ -147,6 +147,20 @@ if (catkin_FOUND AND ENABLE_ROS)
             )
 endif ()
 
+# Standalone live ZED runner (no ROS). Only built when ZED SDK + CUDA present.
+if (NOT catkin_FOUND OR NOT ENABLE_ROS)
+    find_package(ZED QUIET)
+    find_package(CUDA QUIET)
+    if (ZED_FOUND AND CUDA_FOUND)
+        message(STATUS "ZED SDK + CUDA found: building run_zed_msckf")
+        add_executable(run_zed_msckf src/run_zed_msckf.cpp)
+        target_include_directories(run_zed_msckf PRIVATE ${ZED_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS})
+        target_link_libraries(run_zed_msckf ov_srvins_lib ${thirdparty_libraries} ${ZED_LIBRARIES} ${CUDA_LIBRARIES})
+    else ()
+        message(WARNING "ZED SDK or CUDA not found, skipping run_zed_msckf")
+    endif ()
+endif ()
+
 add_executable(run_simulation src/run_simulation.cpp)
 target_link_libraries(run_simulation ov_srvins_lib ${thirdparty_libraries})
 install(TARGETS run_simulation

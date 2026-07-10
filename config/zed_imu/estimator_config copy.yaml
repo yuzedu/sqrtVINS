@@ -56,9 +56,8 @@ init_dyn_inflation_bg: 10
 init_dyn_inflation_ba: 100
 init_dyn_min_rec_cond: 1e-20
 
-# IMU biases from iKalibr v1 (ikalibr_v1.txt), used only if init_dyn_use is true
-init_dyn_bias_g: [-0.0013604236, -0.0035585940, -0.0080201731]
-init_dyn_bias_a: [0.1748880728, 0.0025977355, -0.0139154242]
+init_dyn_bias_g: [0.0, 0.0, 0.0]
+init_dyn_bias_a: [0.0, 0.0, 0.0]
 # ==================================================================
 
 record_timing_information: false
